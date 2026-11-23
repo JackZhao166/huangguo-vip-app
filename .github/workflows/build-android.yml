@@ -24,7 +24,7 @@ jobs:
       - name: Pub get
         run: flutter pub get
 
-      # 关键：清掉作者机器上写死的 Flutter SDK 绝对路径
+      # 修掉作者机器上写死的 Flutter SDK 绝对路径
       - name: Fix hardcoded Flutter SDK path
         run: |
           FLUTTER_SDK="$(dirname "$(dirname "$(readlink -f "$(which flutter)")")")"
@@ -32,8 +32,33 @@ jobs:
             "${ANDROID_HOME:-$ANDROID_SDK_ROOT}" "$FLUTTER_SDK" > android/local.properties
           sed -i "s#/vol1/@appshare/octop-native/data/.octop/agents/alan/flutter-sdk#$FLUTTER_SDK#g" \
             android/settings.gradle
-          echo '--- local.properties ---'; cat android/local.properties
-          echo '--- settings.gradle ---';  cat android/settings.gradle
+
+      # 关键：AGP 8.1.0 -> 8.5.2，Gradle wrapper -> 8.7（两者必须一起改）
+      - name: Align AGP and Gradle wrapper
+        run: |
+          python3 - <<'PY'
+          import re, pathlib
+          root = pathlib.Path("android")
+          for name in ("settings.gradle", "settings.gradle.kts", "build.gradle", "build.gradle.kts"):
+              p = root / name
+              if not p.exists():
+                  continue
+              s = p.read_text()
+              # 旧式 buildscript: classpath 'com.android.tools.build:gradle:8.1.0'
+              s = re.sub(r'(com\.android\.tools\.build:gradle:)[0-9.]+', r'\g<1>8.5.2', s)
+              # 新式 plugins DSL: id "com.android.application" version "8.1.0" apply false
+              s = re.sub(r'(id\s+["\']com\.android\.application["\']\s+version\s+["\'])[0-9.]+(["\'])',
+                         r'\g<1>8.5.2\g<2>', s)
+              p.write_text(s)
+              print(f"--- {p} ---\n{s}")
+          w = root / "gradle/wrapper/gradle-wrapper.properties"
+          if w.exists():
+              s = w.read_text()
+              s = re.sub(r'(distributionUrl\s*=\s*.*gradle-)[0-9.]+(-(all|bin)\.zip)',
+                         r'\g<1>8.7\g<2>', s)
+              w.write_text(s)
+              print(f"--- {w} ---\n{s}")
+          PY
 
       - name: Build APK
         run: flutter build apk --release
