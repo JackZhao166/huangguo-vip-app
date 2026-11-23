@@ -1,7 +1,7 @@
 name: Build Android APK
 
 on:
-  workflow_dispatch:          # 这一行 = "Run workflow" 按钮
+  workflow_dispatch:
   push:
     branches: [main]
 
@@ -16,13 +16,27 @@ jobs:
           channel: stable
           cache: true
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: zulu
           java-version: '17'
 
-      - run: flutter pub get
-      - run: flutter build apk --release
+      - name: Pub get
+        run: flutter pub get
+
+      # 关键：清掉作者机器上写死的 Flutter SDK 绝对路径
+      - name: Fix hardcoded Flutter SDK path
+        run: |
+          FLUTTER_SDK="$(dirname "$(dirname "$(readlink -f "$(which flutter)")")")"
+          printf 'sdk.dir=%s\nflutter.sdk=%s\n' \
+            "${ANDROID_HOME:-$ANDROID_SDK_ROOT}" "$FLUTTER_SDK" > android/local.properties
+          sed -i "s#/vol1/@appshare/octop-native/data/.octop/agents/alan/flutter-sdk#$FLUTTER_SDK#g" \
+            android/settings.gradle
+          echo '--- local.properties ---'; cat android/local.properties
+          echo '--- settings.gradle ---';  cat android/settings.gradle
+
+      - name: Build APK
+        run: flutter build apk --release
 
       - uses: actions/upload-artifact@v4
         with:
