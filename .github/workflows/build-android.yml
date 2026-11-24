@@ -21,46 +21,47 @@ jobs:
           distribution: zulu
           java-version: '17'
 
-      - name: Pub get
-        run: flutter pub get
-
-      # 第 1 关：作者机器上写死的 Flutter SDK 绝对路径
-      - name: Fix hardcoded Flutter SDK path
+      # 核心：备份业务代码 → 删掉混搭的 android/ → 用当前 Flutter 重新生成
+      - name: Regenerate Android scaffold
         run: |
-          FLUTTER_SDK="$(dirname "$(dirname "$(readlink -f "$(which flutter)")")")"
-          printf 'sdk.dir=%s\nflutter.sdk=%s\n' \
-            "${ANDROID_HOME:-$ANDROID_SDK_ROOT}" "$FLUTTER_SDK" > android/local.properties
-          sed -i "s#/vol1/@appshare/octop-native/data/.octop/agents/alan/flutter-sdk#$FLUTTER_SDK#g" \
-            android/settings.gradle
+          set -e
+          NAME=$(grep -m1 '^name:' pubspec.yaml | awk '{print $2}' | tr -d '\r')
+          echo "project name = $NAME"
+          cp pubspec.yaml /tmp/pubspec.yaml
+          cp -a lib /tmp/lib_backup
+          rm -rf android .metadata
+          flutter create --platforms=android --org com.huangguo --project-name "$NAME" .
+          cp /tmp/pubspec.yaml pubspec.yaml          # create 可能重写，还原
+          rm -rf lib && cp -a /tmp/lib_backup lib   # lib/ 绝对不能被动
 
-      # 第 2 关：KGP 2.4 要求 AGP >= 8.5.2；AGP 8.5 要求 Gradle >= 8.7
-      # 这个检查是 KGP 自己抛的，flag 跳不过，必须保留
-      - name: Align AGP and Gradle wrapper
+      # 补回网络权限与明文 HTTP（原项目是视频客户端，新模板 main manifest 不带 INTERNET）
+      - name: Restore network config
         run: |
           python3 - <<'PY'
           import re, pathlib
-          root = pathlib.Path("android")
-          for name in ("settings.gradle", "settings.gradle.kts", "build.gradle", "build.gradle.kts"):
-              p = root / name
-              if not p.exists():
-                  continue
-              s = p.read_text()
-              s = re.sub(r'(com\.android\.tools\.build:gradle:)[0-9.]+', r'\g<1>8.5.2', s)
-              s = re.sub(r'(id\s+["\']com\.android\.application["\']\s+version\s+["\'])[0-9.]+(["\'])',
-                         r'\g<1>8.5.2\g<2>', s)
-              p.write_text(s)
-          w = root / "gradle/wrapper/gradle-wrapper.properties"
-          if w.exists():
-              s = w.read_text()
-              s = re.sub(r'(distributionUrl\s*=\s*.*gradle-)[0-9.]+(-(all|bin)\.zip)',
-                         r'\g<1>8.7\g<2>', s)
-              w.write_text(s)
-              print(s)
+          p = pathlib.Path("android/app/src/main/AndroidManifest.xml")
+          s = p.read_text()
+          if 'android.permission.INTERNET' not in s:
+              s = re.sub(r'(<manifest\b[^>]*>)',
+                         r'\1\n    <uses-permission android:name="android.permission.INTERNET"/>',
+                         s, count=1)
+          if 'usesCleartextTraffic' not in s:
+              s = re.sub(r'<application\b',
+                         '<application android:usesCleartextTraffic="true"', s, count=1)
+          p.write_text(s)
+          print(s)
           PY
 
-      # 第 3 关：Flutter 3.50 的 Gradle/AGP 下限校验 —— 本次新增
+      # ubuntu-latest 若缺 API 36 / Build Tools 36，补装（AGP 9.1 的硬要求）
+      - name: Ensure Android SDK 36
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Pub get
+        run: flutter pub get
+
+      # 不需要 --android-skip-build-dependency-validation：新模板天然满足下限
       - name: Build APK
-        run: flutter build apk --release --android-skip-build-dependency-validation
+        run: flutter build apk --release
 
       - uses: actions/upload-artifact@v4
         with:
