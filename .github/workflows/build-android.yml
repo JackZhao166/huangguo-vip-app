@@ -21,7 +21,9 @@ jobs:
           distribution: zulu
           java-version: '17'
 
-      # 核心：备份业务代码 → 删掉混搭的 android/ → 用当前 Flutter 重新生成
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Regenerate Android scaffold
         run: |
           set -e
@@ -31,10 +33,9 @@ jobs:
           cp -a lib /tmp/lib_backup
           rm -rf android .metadata
           flutter create --platforms=android --org com.huangguo --project-name "$NAME" .
-          cp /tmp/pubspec.yaml pubspec.yaml          # create 可能重写，还原
-          rm -rf lib && cp -a /tmp/lib_backup lib   # lib/ 绝对不能被动
+          cp /tmp/pubspec.yaml pubspec.yaml
+          rm -rf lib && cp -a /tmp/lib_backup lib
 
-      # 补回网络权限与明文 HTTP（原项目是视频客户端，新模板 main manifest 不带 INTERNET）
       - name: Restore network config
         run: |
           python3 - <<'PY'
@@ -52,14 +53,17 @@ jobs:
           print(s)
           PY
 
-      # ubuntu-latest 若缺 API 36 / Build Tools 36，补装（AGP 9.1 的硬要求）
       - name: Ensure Android SDK 36
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Flutter doctor
+        run: flutter doctor -v
 
       - name: Pub get
         run: flutter pub get
 
-      # 不需要 --android-skip-build-dependency-validation：新模板天然满足下限
       - name: Build APK
         run: flutter build apk --release
 
