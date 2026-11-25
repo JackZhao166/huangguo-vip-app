@@ -21,8 +21,11 @@ jobs:
           distribution: zulu
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Ensure Android SDK 36
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
       - name: Regenerate Android scaffold
         run: |
@@ -52,11 +55,6 @@ jobs:
           p.write_text(s)
           print(s)
           PY
-
-      - name: Ensure Android SDK 36
-        run: |
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
       - name: Flutter doctor
         run: flutter doctor -v
